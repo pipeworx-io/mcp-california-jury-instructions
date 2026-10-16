@@ -6,7 +6,7 @@ Elements) and CALCRIM (criminal, e.g. "200" = Duties of Judge and Jury),
 current (2026) edition, full instruction text with Directions for Use/Bench
 Notes, Sources and Authority/Authority, and revision history.
 
-Part of [Pipeworx](https://pipeworx.io) — an MCP gateway connecting AI agents to 1784+ live data sources. This is an independent, unofficial integration — not affiliated with, endorsed by, or published by the upstream provider.
+Part of [Pipeworx](https://pipeworx.io) — an MCP gateway connecting AI agents to 1819+ live data sources. This is an independent, unofficial integration — not affiliated with, endorsed by, or published by the upstream provider.
 
 ## Tools
 
@@ -20,6 +20,14 @@ Part of [Pipeworx](https://pipeworx.io) — an MCP gateway connecting AI agents 
 - `ca_ji_search(query, set?)` — find the official instruction NUMBER for a
   claim or charge by keyword ("breach of contract" -> CACI No. 303), across
   CACI, CALCRIM, or both. Title search, not full-text search.
+- `ca_ji_whats_new(set?, edition?)` — which instructions are new or revised in
+  an edition, aggregated in one call (fleet #3171) — e.g. CALCRIM 2026 ->
+  No. 1808 (Organized Retail Theft), 3235, 3238, 3459. For CACI this is the
+  Judicial Council's own front-matter changed-numbers list for that edition;
+  for CALCRIM (which carries no equivalent table) it is derived from each
+  instruction's own revision-history line. Only the current edition is
+  available; withdrawn/revoked numbers are not datable from this index (see
+  Known limits below) and are always returned empty.
 - `ca_ji_editions(set?)` — current edition year/adoption date and archived
   edition PDF links for either or both sets.
 
@@ -80,6 +88,13 @@ gap); CALCRIM 780/780, 100%.
   in-force text (`status: "adopted"` on every successful lookup).
 - `ca_ji_search` matches official instruction/verdict-form TITLES and series
   names, not full instruction body text.
+- `ca_ji_whats_new` cannot date a WITHDRAWAL to a specific edition: a
+  revoked/reserved number's text (and any revocation date) is dropped from
+  this index at bake time, so its `withdrawn` list is always empty (with a
+  note saying so) — check `caci_lookup`/`calcrim_lookup` on a number instead
+  to see whether it currently returns `status: "revoked_or_reserved"`. Only
+  the current edition's new/revised list is available; any other `edition`
+  returns a clear "not available" response.
 
 **Licensing**: both documents carry an explicit reprint grant on their own
 copyright page — "In accord with Cal. Rules of Court, Rule 2.1050(c), these
@@ -131,7 +146,7 @@ directly, instead of just this one's:
 }
 ```
 
-Both URLs reach the same gateway and the same 1784+ data sources. The
+Both URLs reach the same gateway and the same 1819+ data sources. The
 only difference is which pack's tools are listed **directly**; `ask_pipeworx`
 reaches all of them from either one.
 

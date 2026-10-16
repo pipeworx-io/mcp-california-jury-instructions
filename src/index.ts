@@ -64,12 +64,16 @@ interface McpToolExport {
  * from this pack; the tool descriptions say so rather than silently serving
  * current text under an old year.
  *
- * THREE TOOLS:
+ * FIVE TOOLS:
  *   - caci_lookup(number)      -> one CACI (civil) instruction/verdict form, full text
  *   - calcrim_lookup(number)   -> one CALCRIM (criminal) instruction/verdict form, full text
  *   - ca_ji_search(query, set) -> find the official instruction for a claim/charge by
  *     keyword, across official titles (and verdict-form titles) in either or
  *     both sets — e.g. "breach of contract" -> CACI No. 303.
+ *   - ca_ji_whats_new(set, edition) -> aggregate list of instructions new or
+ *     revised in an edition (fleet #3171) — e.g. CALCRIM 2026 -> No. 1808
+ *     (Organized Retail Theft), 3235, 3238, 3459.
+ *   - ca_ji_editions(set)      -> current edition metadata + archived edition links.
  *
  * Keyless, no signup — this is a read of the Council's own published, public
  * text, not a third-party API.
@@ -349,6 +353,125 @@ function caJiSearch(args: Record<string, unknown>) {
   };
 }
 
+// ---- "what's new/revised this edition" (fleet #3171) ----
+//
+// CACI already bakes the Judicial Council's OWN "Table of New and Revised
+// CACI" front-matter list (CACI_PRIOR_CHANGED_NUMBERS/CACI_PRIOR_DELTA,
+// above) — existed_in_prior:false is new-this-edition, true is revised. No
+// such table exists in CALCRIM's front matter (checked at bake time — see
+// bake-index.mjs's header), so CALCRIM is derived instead from each
+// instruction's OWN revision-history line, which the Council writes as
+// "New <Month> <Year>[; Revised <Month> <Year>, ...]" — an instruction
+// whose line opens with the current edition's exact adoption date (e.g.
+// "New February 2026") is new that edition; one whose line contains that
+// date after a "Revised"/"Renumbered"/"Restored" clause was changed that
+// edition. Verified against the published CALCRIM 2026 revisions: this
+// derivation returns exactly 1808, 3235, 3238, 3459 as new for Feb 2026.
+// Neither set tracks a REVOCATION date for a withdrawn number (a revoked
+// record's text, and with it any date, is dropped at bake time — see the
+// one CACI revoked/reserved record this pack carries), so "withdrawn" is
+// always empty here, with that limitation stated rather than guessed at.
+const MONTH_NAMES = 'January|February|March|April|May|June|July|August|September|October|November|December';
+const REVISION_DATE_RE = new RegExp(`(${MONTH_NAMES})\\s+(\\d{4})\\*?`, 'g');
+
+function parseRevisionEvents(revisionHistory: string | null): { verbs: Set<string>; monthYear: string }[] {
+  if (!revisionHistory) return [];
+  // The Council appends a footnote ("* Denotes changes only to bench notes
+  // and other commentaries.") directly after the last date with no
+  // separator in some lines — strip it before splitting on clauses.
+  const cleaned = revisionHistory.replace(/\*?\s*\*\s*Denotes[\s\S]*$/i, '').trim();
+  const events: { verbs: Set<string>; monthYear: string }[] = [];
+  for (const clause of cleaned.split(/;\s*/)) {
+    const verbs = new Set<string>();
+    if (/\bNew\b/.test(clause)) verbs.add('new');
+    if (/\bRevised\b/.test(clause)) verbs.add('revised');
+    if (/\bRenumbered\b/.test(clause)) verbs.add('renumbered');
+    if (/\bRevoked\b/.test(clause)) verbs.add('revoked');
+    if (/\bRestored\b/.test(clause)) verbs.add('restored');
+    const re = new RegExp(REVISION_DATE_RE);
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(clause))) events.push({ verbs, monthYear: `${m[1]} ${m[2]}` });
+  }
+  return events;
+}
+
+function calcrimEditionChanges(monthYear: string): { added: { number: string; title: string }[]; revised: { number: string; title: string }[]; withdrawn: { number: string; title: string }[] } {
+  const added: { number: string; title: string }[] = [];
+  const revised: { number: string; title: string }[] = [];
+  const withdrawn: { number: string; title: string }[] = [];
+  for (const rec of CALCRIM) {
+    const events = parseRevisionEvents(rec.revision_history).filter((e) => e.monthYear === monthYear);
+    if (!events.length) continue;
+    const verbs = new Set<string>();
+    for (const e of events) for (const v of e.verbs) verbs.add(v);
+    const entry = { number: rec.number, title: rec.title };
+    if (verbs.has('new')) added.push(entry);
+    else if (verbs.has('revoked')) withdrawn.push(entry);
+    else if (verbs.has('revised') || verbs.has('renumbered') || verbs.has('restored')) revised.push(entry);
+  }
+  return { added, revised, withdrawn };
+}
+
+function caciEditionChanges(): { added: { number: string; title: string }[]; revised: { number: string; title: string }[] } {
+  const added: { number: string; title: string }[] = [];
+  const revised: { number: string; title: string }[] = [];
+  for (const number of CACI_PRIOR_CHANGED_NUMBERS) {
+    const delta = CACI_PRIOR_DELTA.get(number);
+    const current = CACI.find((r) => r.number.toUpperCase() === number);
+    const title = current?.title ?? delta?.title ?? number;
+    const entry = { number: current?.number ?? number, title };
+    if (delta && delta.existed_in_prior === false) added.push(entry);
+    else revised.push(entry);
+  }
+  return { added, revised };
+}
+
+const WITHDRAWN_NOTE =
+  'A revoked/reserved number\'s text (and any revocation date) is dropped from this index at bake time, so a withdrawal cannot be dated to a specific edition from here — this list is always empty. Call caci_lookup/calcrim_lookup with a number to see if it currently returns status "revoked_or_reserved".';
+
+function caJiWhatsNew(args: Record<string, unknown>) {
+  const setArg = String(args.set ?? 'both').toLowerCase();
+  const sets: ('caci' | 'calcrim')[] = setArg === 'caci' ? ['caci'] : setArg === 'calcrim' ? ['calcrim'] : ['caci', 'calcrim'];
+  const editionArg = (args.edition != null ? String(args.edition) : '').trim();
+
+  const results: Record<string, unknown> = {};
+  for (const set of sets) {
+    const editionMeta = set === 'caci' ? CACI_EDITION_META : CALCRIM_EDITION_META;
+    const publication = set === 'caci' ? 'Judicial Council of California Civil Jury Instructions (CACI)' : 'Judicial Council of California Criminal Jury Instructions (CALCRIM)';
+    const currentUrl = set === 'caci' ? CACI_CURRENT_URL : CALCRIM_CURRENT_URL;
+    const isCurrentEdition = !editionArg || Number(editionArg) === (editionMeta?.year ?? NaN);
+    if (!isCurrentEdition) {
+      results[set] = {
+        found: false,
+        reason: 'edition_not_available',
+        requested_edition: editionArg,
+        message: `Only the ${editionMeta?.year ?? 'current'} edition's new/revised list is available for ${set === 'caci' ? 'CACI' : 'CALCRIM'} — "${editionArg}" is not baked. See ca_ji_editions for archived edition links.`,
+        source: publication,
+        data_as_of: CAPTURED_AT,
+      };
+      continue;
+    }
+    const changes = set === 'caci' ? { ...caciEditionChanges(), withdrawn: [] as { number: string; title: string }[] } : calcrimEditionChanges(editionMeta?.adopted ?? '');
+    results[set] = {
+      found: true,
+      edition_year: editionMeta?.year ?? null,
+      adopted: editionMeta?.adopted ?? null,
+      new: changes.added,
+      revised: changes.revised,
+      withdrawn: changes.withdrawn,
+      withdrawn_note: WITHDRAWN_NOTE,
+      basis:
+        set === 'caci'
+          ? 'The Council\'s own "Table of New and Revised CACI" front-matter list for this edition.'
+          : `Each instruction's own revision-history line, matched against this edition's adoption date (${editionMeta?.adopted ?? 'unknown'}) — CALCRIM carries no equivalent front-matter changelog table.`,
+      source: publication,
+      source_url: currentUrl,
+      data_as_of: CAPTURED_AT,
+    };
+  }
+  return { found: true, results, data_as_of: CAPTURED_AT };
+}
+
 function caJiEditions(args: Record<string, unknown>) {
   const setArg = String(args.set ?? 'both').toLowerCase();
   const out: Record<string, unknown> = { data_as_of: CAPTURED_AT };
@@ -412,6 +535,19 @@ const tools: McpToolExport['tools'] = [
     },
   },
   {
+    name: 'ca_ji_whats_new',
+    description:
+      'Which CACI (civil) and/or CALCRIM (criminal) jury instructions are NEW or REVISED in an edition, aggregated in one call — e.g. "what\'s new in the 2026 CALCRIM edition" -> CALCRIM No. 1808 (Organized Retail Theft), 3235, 3238, 3459. For CACI this is the Judicial Council\'s own "Table of New and Revised CACI" front-matter list for that edition; for CALCRIM (which carries no equivalent table) it is derived from each instruction\'s own revision-history line matched against that edition\'s adoption date. Only the CURRENT edition is available (see ca_ji_editions for archived editions). Withdrawn/revoked numbers are not datable from this index and are always returned empty with a note — use caci_lookup/calcrim_lookup on a specific number to check revocation status. Keyless.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        set: { type: 'string', enum: ['caci', 'calcrim', 'both'], description: 'Restrict to "caci" (civil) or "calcrim" (criminal); default "both".' },
+        edition: { type: 'string', description: 'Optional edition year, e.g. "2026". Defaults to the current edition; any other year returns a clear "not available" response.' },
+      },
+      required: [],
+    },
+  },
+  {
     name: 'ca_ji_editions',
     description:
       'List the CURRENT edition year/adoption date and ARCHIVED edition PDF links for CACI (civil) and/or CALCRIM (criminal) jury instructions. Use when a caller needs a past year\'s edition (e.g. for a trial that occurred under an older version) or just wants to confirm which edition caci_lookup/calcrim_lookup text comes from. Archived editions are LINKED, not text-extracted — only the current edition\'s instruction text is available via caci_lookup/calcrim_lookup. Keyless.',
@@ -434,6 +570,8 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
       return calcrimLookup(args);
     case 'ca_ji_search':
       return caJiSearch(args);
+    case 'ca_ji_whats_new':
+      return caJiWhatsNew(args);
     case 'ca_ji_editions':
       return caJiEditions(args);
     default:
