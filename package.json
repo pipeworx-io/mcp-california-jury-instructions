@@ -1,12 +1,20 @@
 {
   "name": "@pipeworx/mcp-california-jury-instructions",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "California Jury Instructions — CACI (civil) and CALCRIM (criminal), official text as adopted by the Judicial Council of California. Fleet #2785.",
   "type": "module",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./tools.json": "./tools.json",
+    "./package.json": "./package.json"
+  },
   "bin": {
     "mcp-california-jury-instructions": "bin/cli.js"
+  },
+  "files": ["bin/", "lib/", "tools.json", "server.json"],
+  "engines": {
+    "node": ">=18"
   },
   "keywords": ["mcp", "mcp-server", "model-context-protocol", "pipeworx", "california-jury-instructions"],
   "license": "MIT",
@@ -14,19 +22,12 @@
     "type": "git",
     "url": "git+https://github.com/pipeworx-io/mcp-california-jury-instructions.git"
   },
-  "scripts": {
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
-    "tsx": "^4.19.0"
-  },
-  "devDependencies": {
-    "typescript": "^5.9.3",
-    "@cloudflare/workers-types": "^4.20260405.1"
-  },
+  "mcpName": "io.github.pipeworx-io/california-jury-instructions",
   "pipeworx": {
-    "sourceHash": "v1-456127a6c7e508819bac40587a58cf4ab1cb57aa09c1d2ff30958671a0d8aff5",
-    "sourceCommit": "a03f96ed672b8c149593c64ecbf30280cabf084c"
+    "mode": "gateway",
+    "slug": "california-jury-instructions",
+    "gatewaySlug": "california-jury-instructions",
+    "sourceHash": "v1-e7e8c01b3d9eca3b16e42319bbf704a868a01d798550b872102ce47359d528de",
+    "sourceCommit": "4277282d72f9bf55e548b3799aaf737baf22152f"
   }
 }
